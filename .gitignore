@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.env/
+env/
+
+# Large model weights (too big for GitHub without LFS)
+data/best_resnet18.pth
+
+# Large dataset folders (raw MRI data - do NOT commit to GitHub)
+data/nifti_raw/
+data/nifti_processed/
+raw_dataset/
+PPMI/
+
+# Temporary files
+temp_uploads/
+*.tmp
+*.log
+
+# Test rotation images (dev artifacts)
+rot0.png
+rot1.png
+rot2.png
+rot3.png
+rot_180.png
+rot_flip_ud.png
+rot_orig.png
+sample_3637_fixed.png
+test_overlay_clean.png
+test_prep_clean.png
+test_s0.png
+test_s1.png
+test_s2.png
+upright_0.png
+upright_1.png
+upright_2.png
+upright_3.png
+upright_4.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

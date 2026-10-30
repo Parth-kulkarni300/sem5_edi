@@ -1,0 +1,17 @@
+Metric,Value
+Folder Structure,PPMI / <Subject_ID> / <Sequence> / <Timestamp> / <Slices>.dcm
+File Types,DICOM (.dcm)
+Total MRI Scans / Series,380
+Unique Subjects,373
+Subject IDs,"100001, 100017, 100891, 100911, 101048, 101092, 101186, 101480, 101482, 101513..."
+Image IDs,"1473172, 1473678, 1497614, 1495841, 1495855, 1473261, 1618837, UNKNOWN, 1524081, 1495870..."
+PD Count (Parkinson's),192
+Control Count (Healthy),188
+MRI Sequence / Type,Structural T1-weighted 3D MPRAGE / GRAPPA
+Image Dimensions (HxWxD),"(256, 256, 160-192 slices)"
+Voxel Spacing,"(1.00, 1.00, 1.00 mm isotropic)"
+Missing Metadata,None (Full DICOM header present)
+Corrupted / Failed QC,2
+Duplicate Subjects,0
+Duplicate Scans,7
+PD vs Control Distribution,"PD: 192 (50.5%), HC: 188 (49.5%)"
