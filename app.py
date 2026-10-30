@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.transforms as T
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -148,12 +149,65 @@ def run_model_inference(prep_nifti_path, target_slice=None):
 
     t = eval_transform(slice_u8).unsqueeze(0).to(device)
 
+    # ── Real Grad-CAM via ResNet18 layer4 hooks ──────────────────────────
+    gradcam_map = None
     if model is not None:
-        with torch.no_grad():
-            outputs = model(t)
-            probs = torch.softmax(outputs, dim=1).squeeze(0).cpu().numpy()
+        # Storage for hook outputs
+        _activations = {}
+        _gradients   = {}
+
+        def _save_activation(module, inp, out):
+            _activations["layer4"] = out.detach()
+
+        def _save_gradient(module, grad_in, grad_out):
+            _gradients["layer4"] = grad_out[0].detach()
+
+        # Register hooks on the last convolutional block (layer4)
+        hook_fwd = model.backbone.layer4.register_forward_hook(_save_activation)
+        hook_bwd = model.backbone.layer4.register_full_backward_hook(_save_gradient)
+
+        # Forward pass WITH grad (no torch.no_grad here)
+        model.eval()
+        t_grad = t.clone().requires_grad_(True)
+        outputs = model(t_grad)
+        probs_t = torch.softmax(outputs, dim=1).squeeze(0)
+        probs   = probs_t.detach().cpu().numpy()
+
+        # Backprop only for the predicted class to get class-discriminative gradients
+        pred_class_idx = int(np.argmax(probs))
+        model.zero_grad()
+        outputs[0, pred_class_idx].backward()
+
+        # Remove hooks
+        hook_fwd.remove()
+        hook_bwd.remove()
+
+        # Grad-CAM: global-average-pool the gradients over the spatial dims
+        gradients   = _gradients["layer4"]          # [1, C, H', W']
+        activations = _activations["layer4"]         # [1, C, H', W']
+        weights     = gradients.mean(dim=[2, 3], keepdim=True)  # [1, C, 1, 1]
+
+        # Weighted combination of activation maps → ReLU (keep only positive influence)
+        cam = (weights * activations).sum(dim=1, keepdim=True)  # [1, 1, H', W']
+        cam = F.relu(cam)
+
+        # Normalize to [0, 1]
+        cam_min, cam_max = cam.min(), cam.max()
+        if cam_max > cam_min:
+            cam = (cam - cam_min) / (cam_max - cam_min + 1e-8)
+        else:
+            cam = torch.zeros_like(cam)
+
+        # Upsample Grad-CAM to match the original MRI slice resolution
+        norm_slice_tmp = extract_axial_slice(arr, z_mid)
+        h_orig, w_orig = norm_slice_tmp.shape
+        cam_up = F.interpolate(
+            cam, size=(h_orig, w_orig), mode="bilinear", align_corners=False
+        )  # [1, 1, H, W]
+        gradcam_map = cam_up.squeeze().cpu().numpy()  # [H, W]  values in [0,1]
     else:
         probs = np.array([0.5, 0.5])
+    # ─────────────────────────────────────────────────────────────────────
 
     prob_hc = float(probs[0])
     prob_pd = float(probs[1])
@@ -161,22 +215,15 @@ def run_model_inference(prep_nifti_path, target_slice=None):
     prediction = "Parkinson's Disease" if prob_pd >= 0.46 else "Healthy Control"
     confidence = float(max(prob_pd, prob_hc) * 100.0)
 
-    # Render clean upright images
+    # Render images
     norm_slice = extract_axial_slice(arr, z_mid)
-    h, w = norm_slice.shape
-    y_grid, x_grid = np.ogrid[:h, :w]
-    cy, cx = h * 0.55, w * 0.5
-    dist = np.sqrt((x_grid - cx)**2 + (y_grid - cy)**2)
-    bg_mask = np.exp(-dist**2 / (2 * (min(h, w) * 0.16)**2))
 
-    if prediction == "Parkinson's Disease":
-        heatmap = bg_mask * norm_slice * (0.85 + 0.15 * np.random.rand(h, w))
-    else:
-        heatmap = bg_mask * norm_slice * 0.15
+    # Use real Grad-CAM map; fall back gracefully if not available
+    heatmap = gradcam_map if gradcam_map is not None else np.zeros_like(norm_slice)
 
-    raw_b64 = render_slice_b64(norm_slice, cmap="gray", title="Raw Axial T1 Slice")
+    raw_b64  = render_slice_b64(norm_slice, cmap="gray", title="Raw Axial T1 Slice")
     prep_b64 = render_slice_b64(norm_slice * (norm_slice > 0.05), cmap="bone", title="Skull-Stripped Brain Mask")
-    overlay_b64 = render_slice_b64(norm_slice, overlay=heatmap, title="Substantia Nigra Grad-CAM")
+    overlay_b64 = render_slice_b64(norm_slice, overlay=heatmap, title="Grad-CAM — Parkinson's Feature Saliency")
 
     return {
         "prediction": prediction,
